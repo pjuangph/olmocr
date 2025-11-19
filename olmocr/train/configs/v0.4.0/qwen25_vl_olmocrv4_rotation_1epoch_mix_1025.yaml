@@ -13,22 +13,22 @@ model:
   attn_implementation: flash_attention_2
   
   # LoRA settings (disabled by default)
-  use_lora: false
-  # lora_rank: 8
-  # lora_alpha: 32
-  # lora_dropout: 0.1
-  # lora_target_modules:
-  #   - q_proj
-  #   - v_proj
-  #   - k_proj
-  #   - o_proj
+  use_lora: true
+  lora_rank: 8
+  lora_alpha: 32
+  lora_dropout: 0.1
+  lora_target_modules:
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
 
 # Dataset configuration
 dataset:
 
   train:
-    - name: processed_01_books_train_iabooks
-      root_dir: /data/olmOCR-mix-1025/processed_01_books_train_iabooks/
+    - name: processed_01_books_train
+      root_dir: data/olmOCR-mix-1025/processed_01_books_train/
       pipeline: &basic_pipeline
         - name: FrontMatterParser
           front_matter_class: PageResponse
@@ -45,36 +45,36 @@ dataset:
         - name: Tokenizer
           masking_index: -100
           end_of_message_token: "<|im_end|>"
-    - name: processed_00_documents_train_s2pdf
-      root_dir: /data/olmOCR-mix-1025/processed_00_documents_train_s2pdf/
+    - name: processed_00_documents_train
+      root_dir: data/olmOCR-mix-1025/processed_00_documents_train/
       pipeline: *basic_pipeline
     - name: processed_02_loc_transcripts
-      root_dir: /data/olmOCR-mix-1025/processed_02_loc_transcripts/
+      root_dir: data/olmOCR-mix-1025/processed_02_loc_transcripts_train/
       pipeline: *basic_pipeline
     - name: processed_03_national_archives
-      root_dir: /data/olmOCR-mix-1025/processed_03_national_archives/
+      root_dir: data/olmOCR-mix-1025/processed_03_national_archives_train/
       pipeline: *basic_pipeline            
 
   eval:
-    - name: processed_00_documents_eval_s2pdf
-      root_dir: /data/olmOCR-mix-1025/processed_00_documents_eval_s2pdf/
+    - name: processed_00_documents_eval
+      root_dir: data/olmOCR-mix-1025/processed_00_documents_eval/
       pipeline: *basic_pipeline
     - name: processed_01_books_eval_iabooks
-      root_dir: /data/olmOCR-mix-1025/processed_01_books_eval_iabooks/
+      root_dir: data/olmOCR-mix-1025/processed_01_books_eval/
       pipeline: *basic_pipeline
     - name: processed_02_loc_transcripts_eval
-      root_dir: /data/olmOCR-mix-1025/processed_02_loc_transcripts_eval/
+      root_dir: data/olmOCR-mix-1025/processed_02_loc_transcripts_eval/
       pipeline: *basic_pipeline
     - name: processed_03_national_archives_eval
-      root_dir: /data/olmOCR-mix-1025/processed_03_national_archives_eval/
+      root_dir: data/olmOCR-mix-1025/processed_03_national_archives_eval/
       pipeline: *basic_pipeline            
 
 
 # Training configuration
 training:
-  output_dir: /weka/oe-training-default/jakep/olmocr-trainer/
+  output_dir: local_model_weights/
   num_train_epochs: 1
-  
+
   # Batch size and accumulation
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
@@ -114,5 +114,5 @@ training:
   metric_for_best_model: eval_processed_00_documents_eval_s2pdf_loss
   greater_is_better: false
   
-  report_to: 
-    - wandb
+  # Disable external logging; set to ['wandb'] to enable.
+  report_to: []

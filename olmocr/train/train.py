@@ -130,7 +130,6 @@ class QwenDataCollator:
             "image_grid_thw": torch.stack(batch["image_grid_thw"]),
         }
 
-
 def save_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,

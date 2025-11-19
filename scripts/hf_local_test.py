@@ -11,7 +11,7 @@ from olmocr.prompts import build_no_anchoring_v4_yaml_prompt
 
 if __name__ == "__main__":
     # Initialize the model
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained("allenai/olmOCR-7B-1025", torch_dtype=torch.bfloat16).eval()
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained("allenai/olmOCR-7B-1025", dtype=torch.bfloat16).eval()
     processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)

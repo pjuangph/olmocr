@@ -33,7 +33,7 @@ debug.log
 birrpipeline-debug.log
 beakerpipeline-debug.log
 olmocr-pipeline-debug.log
-
+data/ 
 # build artifacts
 
 .eggs/
@@ -85,3 +85,6 @@ __pycache__
 
 docs/build
 site/
+*.gz
+*.parquet
+*.safetensors

@@ -308,7 +308,7 @@ async def async_main():
     print("\n=== Loading HuggingFace Model ===")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     processor_hf = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
-    hf_model = AutoModelForVision2Seq.from_pretrained(model_path, trust_remote_code=True, torch_dtype=torch.float16, device_map="auto")
+    hf_model = AutoModelForVision2Seq.from_pretrained(model_path, trust_remote_code=True, dtype=torch.float16, device_map="auto")
     hf_model.eval()
 
     # Create vLLM engine once

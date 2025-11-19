@@ -51,7 +51,7 @@ def run_transformers(
 
     if _cached_model is None:
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            model_name, torch_dtype=torch.bfloat16, device_map="auto", attn_implementation="flash_attention_2"
+            model_name, dtype=torch.bfloat16, device_map="auto", attn_implementation="flash_attention_2"
         ).eval()
         processor = AutoProcessor.from_pretrained(model_name)
 

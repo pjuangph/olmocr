@@ -27,8 +27,8 @@ model:
 dataset:
 
   train:
-    - name: processed_01_books_train_iabooks
-      root_dir: /data/olmOCR-mix-0825/processed_01_books_train_iabooks/
+    - name: processed_01_books_train
+      root_dir: /data/olmOCR-mix-1025/processed_01_books_train/
       pipeline: &basic_pipeline
         - name: FrontMatterParser
           front_matter_class: PageResponse
@@ -44,16 +44,16 @@ dataset:
         - name: Tokenizer
           masking_index: -100
           end_of_message_token: "<|im_end|>"
-    - name: processed_00_documents_train_s2pdf
-      root_dir: /data/olmOCR-mix-0825/processed_00_documents_train_s2pdf/
+    - name: processed_00_documents_train
+      root_dir: /data/olmOCR-mix-1025/processed_00_documents_train/
       pipeline: *basic_pipeline
 
   eval:
-    - name: processed_00_documents_eval_s2pdf
-      root_dir: /data/olmOCR-mix-0825/processed_00_documents_eval_s2pdf/
+    - name: processed_00_documents_eval
+      root_dir: /data/olmOCR-mix-1025/processed_00_documents_eval/
       pipeline: *basic_pipeline
-    - name: processed_01_books_eval_iabooks
-      root_dir: /data/olmOCR-mix-0825/processed_01_books_eval_iabooks/
+    - name: processed_01_books_eval
+      root_dir: /data/olmOCR-mix-1025/processed_01_books_eval/
       pipeline: *basic_pipeline
 
 

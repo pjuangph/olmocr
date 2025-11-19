@@ -333,7 +333,7 @@ def merge_lora_adapter_checkpoint(adapter_dir: str, base_model_name: str, output
     base_model = model_class.from_pretrained(
         base_model_name,
         trust_remote_code=True,
-        torch_dtype="auto",
+        dtype="auto",
     )
 
     lora_model = PeftModel.from_pretrained(base_model, adapter_dir, is_trainable=False)

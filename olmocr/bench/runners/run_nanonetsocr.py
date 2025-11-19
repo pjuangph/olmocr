@@ -22,7 +22,7 @@ def load_model(model_path: str = "nanonets/Nanonets-OCR-s"):
         _device = "cuda" if torch.cuda.is_available() else "cpu"
         _model = AutoModelForImageTextToText.from_pretrained(
             model_path,
-            torch_dtype="auto",
+            dtype="auto",
             device_map="auto",
             # attn_implementation="flash_attention_2"
         )

@@ -215,19 +215,19 @@ def load_model_and_tokenizer(
     # Load appropriate model class based on name
     if "Qwen2.5-VL" in model_name:
         print("Detected Qwen2.5-VL model")
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_path, device_map="auto", torch_dtype="auto")
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_path, device_map="auto", dtype="auto")
     elif "Qwen2-VL" in model_name:
         print("Detected Qwen2-VL model")
-        model = Qwen2VLForConditionalGeneration.from_pretrained(model_path, device_map="auto", torch_dtype="auto")
+        model = Qwen2VLForConditionalGeneration.from_pretrained(model_path, device_map="auto", dtype="auto")
     else:
         # Default to checking architectures list
         architectures = config.get("architectures", [])
         if "Qwen2_5_VLForConditionalGeneration" in architectures:
             print("Detected Qwen2.5-VL model from architectures")
-            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_path, device_map="auto", torch_dtype="auto")
+            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_path, device_map="auto", dtype="auto")
         else:
             print("Detected Qwen2-VL model from architectures")
-            model = Qwen2VLForConditionalGeneration.from_pretrained(model_path, device_map="auto", torch_dtype="auto")
+            model = Qwen2VLForConditionalGeneration.from_pretrained(model_path, device_map="auto", dtype="auto")
 
     print(f"Loading tokenizer from {model_path}...")
     tokenizer = AutoTokenizer.from_pretrained(model_path)
