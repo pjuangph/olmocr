@@ -318,7 +318,7 @@ def main():
     logger.info(f"Loading processor: {config.model.name}")
     processor = AutoProcessor.from_pretrained(
         config.model.name,
-    )
+    ) # Processor tokenizes the text, prepares the images, apply model's chat template
 
     # Model init kwargs to reuse for loading checkpoints
     model_init_kwargs = {
