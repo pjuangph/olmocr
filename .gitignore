@@ -50,7 +50,6 @@ pip-wheel-metadata/
 .python-version
 .idea
 .venv/
-.vscode/
 /*.iml
 pyrightconfig.json
 

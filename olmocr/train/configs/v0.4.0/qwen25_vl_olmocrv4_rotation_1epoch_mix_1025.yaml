@@ -8,6 +8,7 @@ run_name: qwen2.5-vl-7b-olmocrv4_1epoch_promptv4_mix1025_more_rotation
 model:
   name: Qwen/Qwen2.5-VL-7B-Instruct
   trust_remote_code: true
+  max_memory: {0: "18GiB"}
   torch_dtype: bfloat16
   use_flash_attention: true
   attn_implementation: flash_attention_2
@@ -35,7 +36,7 @@ dataset:
         - name: FilterOutRotatedDocuments
         - name: ReformatLatexBoldItalic
         - name: PDFRenderer
-          target_longest_image_dim: 1288
+          target_longest_image_dim: 960
         - name: RotationAugmentation
           probability: 0.02
         - name: NewYamlFinetuningPromptWithNoAnchoring
@@ -45,44 +46,50 @@ dataset:
         - name: Tokenizer
           masking_index: -100
           end_of_message_token: "<|im_end|>"
-    - name: processed_00_documents_train
-      root_dir: data/olmOCR-mix-1025/processed_00_documents_train/
-      pipeline: *basic_pipeline
-    - name: processed_02_loc_transcripts
-      root_dir: data/olmOCR-mix-1025/processed_02_loc_transcripts_train/
-      pipeline: *basic_pipeline
-    - name: processed_03_national_archives
-      root_dir: data/olmOCR-mix-1025/processed_03_national_archives_train/
-      pipeline: *basic_pipeline            
+    # - name: processed_00_documents_train
+    #   root_dir: data/olmOCR-mix-1025/processed_00_documents_train/
+    #   pipeline: *basic_pipeline
+    # - name: processed_02_loc_transcripts
+    #   root_dir: data/olmOCR-mix-1025/processed_02_loc_transcripts_train/
+    #   pipeline: *basic_pipeline
+    # - name: processed_03_national_archives
+    #   root_dir: data/olmOCR-mix-1025/processed_03_national_archives_train/
+    #   pipeline: *basic_pipeline            
 
   eval:
     - name: processed_00_documents_eval
       root_dir: data/olmOCR-mix-1025/processed_00_documents_eval/
       pipeline: *basic_pipeline
-    - name: processed_01_books_eval_iabooks
-      root_dir: data/olmOCR-mix-1025/processed_01_books_eval/
-      pipeline: *basic_pipeline
-    - name: processed_02_loc_transcripts_eval
-      root_dir: data/olmOCR-mix-1025/processed_02_loc_transcripts_eval/
-      pipeline: *basic_pipeline
-    - name: processed_03_national_archives_eval
-      root_dir: data/olmOCR-mix-1025/processed_03_national_archives_eval/
-      pipeline: *basic_pipeline            
+    # - name: processed_01_books_eval_iabooks
+    #   root_dir: data/olmOCR-mix-1025/processed_01_books_eval/
+    #   pipeline: *basic_pipeline
+    # - name: processed_02_loc_transcripts_eval
+    #   root_dir: data/olmOCR-mix-1025/processed_02_loc_transcripts_eval/
+    #   pipeline: *basic_pipeline
+    # - name: processed_03_national_archives_eval
+    #   root_dir: data/olmOCR-mix-1025/processed_03_national_archives_eval/
+    #   pipeline: *basic_pipeline            
 
 
 # Training configuration
 training:
   output_dir: local_model_weights/
-  num_train_epochs: 1
+  num_train_epochs: 10
+
+  # Dataloader 
+  dataloader_num_workers: 8
+  pin_memory: true
 
   # Batch size and accumulation
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
   gradient_accumulation_steps: 32
+  
 
   gradient_checkpointing: False
 
-  collator_max_token_len: 8192
+  collator_max_token_len: 2048
+  collator_skip_over_max: true
   
   # Learning rate
   learning_rate: 2e-5
@@ -95,8 +102,8 @@ training:
   max_grad_norm: 1.0
 
   # Torch compile settings
-  torch_compile: true
-  torch_compile_backend: inductor
+  torch_compile: false
+  torch_compile_backend: eager # options: 'inductor', 'aot_eager', 'nvfuser', etc.
   torch_compile_mode: default
   torch_compile_fullgraph: false
   torch_compile_dynamic: false

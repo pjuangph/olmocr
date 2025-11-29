@@ -79,8 +79,9 @@ def is_lora_checkpoint(checkpoint_dir: str) -> bool:
 class QwenDataCollator:
     """Data collator for vision-language models that handles numpy arrays."""
 
-    def __init__(self, max_token_len: Optional[int] = None):
+    def __init__(self, max_token_len: Optional[int] = None, skip_over_max: bool = False):
         self.max_token_len = max_token_len
+        self.skip_over_max = skip_over_max
 
     def __call__(self, examples):
         # Filter out None values and extract the fields we need
@@ -226,11 +227,11 @@ def evaluate_model(
         num_batches = 0
 
         with torch.no_grad():
-            for batch in dataloader:
+            for batch in tqdm(dataloader, desc=f"Eval {dataset_name}", unit="batch", leave=False):
                 # Skip if batch is None (all samples were filtered out)
                 if batch is None:
                     continue
-                batch = {k: v.to(device) for k, v in batch.items()}
+                batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
                 with autocast(device_type="cuda", enabled=True, dtype=torch.bfloat16):
                     outputs = model(**batch)
                 total_loss += outputs.loss.item()
@@ -283,6 +284,7 @@ def create_train_dataloader(
         collate_fn=data_collator,
         num_workers=config.training.dataloader_num_workers,
         drop_last=config.training.dataloader_drop_last,
+        pin_memory=config.training.pin_memory,
         worker_init_fn=seed_worker,
         generator=epoch_generator,
     )
@@ -321,9 +323,11 @@ def main():
     ) # Processor tokenizes the text, prepares the images, apply model's chat template
 
     # Model init kwargs to reuse for loading checkpoints
+    model_dtype = getattr(torch, config.model.torch_dtype) if config.model.torch_dtype != "auto" else "auto"
     model_init_kwargs = {
-        "torch_dtype": getattr(torch, config.model.torch_dtype) if config.model.torch_dtype != "auto" else "auto",
+        "dtype": model_dtype,
         "device_map": config.model.device_map,
+        "max_memory": config.model.max_memory,
         "trust_remote_code": config.model.trust_remote_code,
         "attn_implementation": config.model.attn_implementation if config.model.use_flash_attention else None,
     }
@@ -360,8 +364,17 @@ def main():
         pipeline_steps = config.get_pipeline_steps(dataset_cfg["pipeline"], processor)
 
         logger.info(f"Creating training dataset {i+1} from: {root_dir}")
-        dataset = BaseMarkdownPDFDataset(root_dir, pipeline_steps)
+        dataset = BaseMarkdownPDFDataset(
+            root_dir,
+            pipeline_steps,
+            max_token_len=config.training.collator_max_token_len,
+            skip_over_max=config.training.collator_skip_over_max,
+        )
         logger.info(f"Found {len(dataset)} samples")
+        if config.training.collator_skip_over_max and dataset.skipped_due_to_length:
+            logger.info(
+                f"Skipped {dataset.skipped_due_to_length} samples in dataset {i+1} over max_token_len={config.training.collator_max_token_len} using token_stats.json"
+            )
 
         if len(dataset) > 0:
             train_datasets.append(dataset)
@@ -381,8 +394,17 @@ def main():
         dataset_name = dataset_cfg.get("name", f"eval_dataset_{i+1}")
 
         logger.info(f"Creating evaluation dataset '{dataset_name}' from: {root_dir}")
-        dataset = BaseMarkdownPDFDataset(root_dir, pipeline_steps)
+        dataset = BaseMarkdownPDFDataset(
+            root_dir,
+            pipeline_steps,
+            max_token_len=config.training.collator_max_token_len,
+            skip_over_max=config.training.collator_skip_over_max,
+        )
         logger.info(f"Found {len(dataset)} samples")
+        if config.training.collator_skip_over_max and dataset.skipped_due_to_length:
+            logger.info(
+                f"Skipped {dataset.skipped_due_to_length} samples in eval dataset '{dataset_name}' over max_token_len={config.training.collator_max_token_len} using token_stats.json"
+            )
 
         if len(dataset) > 0:
             eval_datasets[dataset_name] = dataset
@@ -514,7 +536,10 @@ def main():
     )
 
     # Data collator
-    data_collator = QwenDataCollator(max_token_len=config.training.collator_max_token_len)
+    data_collator = QwenDataCollator(
+        max_token_len=config.training.collator_max_token_len,
+        skip_over_max=config.training.collator_skip_over_max,
+    )
 
     # Resume from checkpoint if available
     global_step = 0
@@ -554,15 +579,16 @@ def main():
             collate_fn=data_collator,
             num_workers=config.training.dataloader_num_workers,
             drop_last=False,
+            pin_memory=config.training.pin_memory,
         )
         for name, dataset in eval_datasets.items()
     }
 
     # Always evaluate on start
-    metrics = evaluate_model(model, eval_dataloaders, device)
-    logger.info(f"Initial evaluation: {metrics}")
-    if "wandb" in config.training.report_to:
-        wandb.log(metrics, step=global_step)
+    # metrics = evaluate_model(model, eval_dataloaders, device)
+    # logger.info(f"Initial evaluation: {metrics}")
+    # if "wandb" in config.training.report_to:
+    #     wandb.log(metrics, step=global_step)
 
     # Main training loop
     current_epoch = samples_seen / len(train_dataset)
@@ -632,7 +658,7 @@ def main():
             if batch is None:
                 continue
 
-            batch = {k: v.to(device) for k, v in batch.items()}
+            batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
 
             with autocast(device_type="cuda", enabled=True, dtype=torch.bfloat16):
                 outputs = model(**batch)

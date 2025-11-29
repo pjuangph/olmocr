@@ -10,6 +10,8 @@ def get_pdf_media_box_width_height(local_pdf_path: str, page_num: int) -> tuple[
     """
     Get the MediaBox dimensions for a specific page in a PDF file using the pdfinfo command.
 
+    install pdfinfo using `sudo apt-get install poppler-utils`
+    
     :param pdf_file: Path to the PDF file
     :param page_num: The page number for which to extract MediaBox dimensions
     :return: A dictionary containing MediaBox dimensions or None if not found

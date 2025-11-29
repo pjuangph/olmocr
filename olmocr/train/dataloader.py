@@ -2,6 +2,7 @@ import argparse
 import base64
 import json
 import logging
+import math
 import multiprocessing
 import re
 import shutil
@@ -102,17 +103,28 @@ class PipelineStep(ABC):
 class BaseMarkdownPDFDataset(Dataset):
     """Base dataset class that loads and verifies markdown-PDF pairs."""
 
-    def __init__(self, root_dir: str | PathLike, pipeline_steps: Optional[List[PipelineStep]] = None):
+    def __init__(
+        self,
+        root_dir: str | PathLike,
+        pipeline_steps: Optional[List[PipelineStep]] = None,
+        max_token_len: Optional[int] = None,
+        skip_over_max: bool = False,
+    ):
         """
         Initialize the dataset by finding all markdown files with corresponding PDFs.
 
         Args:
             root_dir: Path to the root folder containing processed markdown and PDF files
             pipeline_steps: Optional list of pipeline steps to apply to each sample
+            max_token_len: Optional max token length for skipping (used with token_stats.json)
+            skip_over_max: If True, skip samples whose recorded length exceeds max_token_len
         """
         self.root_dir = Path(root_dir)
         self.pipeline_steps = pipeline_steps or []
+        self.max_token_len = max_token_len
+        self.skip_over_max = skip_over_max
         self.samples = []
+        self.skipped_due_to_length = 0
 
         # Find all markdown files recursively
         logger.info(f"Scanning for markdown files in {self.root_dir}...")
@@ -150,6 +162,32 @@ class BaseMarkdownPDFDataset(Dataset):
 
         # Sort samples by markdown path for consistent ordering across runs
         self.samples.sort(key=lambda x: x["markdown_path"])
+
+        # Optionally skip samples based on precomputed token stats
+        if self.skip_over_max and self.max_token_len is not None:
+            stats_path = self.root_dir / "token_stats.json"
+            if stats_path.exists():
+                try:
+                    with open(stats_path, "r") as f:
+                        stats_data = json.load(f)
+                    by_markdown = stats_data.get("by_markdown", {})
+                    filtered = []
+                    skipped = 0
+                    for sample in self.samples:
+                        rel_path = str(sample["markdown_path"].relative_to(self.root_dir))
+                        length = by_markdown.get(rel_path)
+                        if length is not None and length > self.max_token_len:
+                            skipped += 1
+                            continue
+                        filtered.append(sample)
+                    if skipped > 0:
+                        logger.info(f"Skipped {skipped} samples over max_token_len={self.max_token_len} using token_stats.json")
+                    self.skipped_due_to_length = skipped
+                    self.samples = filtered
+                except Exception as e:
+                    logger.warning(f"Failed to apply token_stats.json filtering: {e}")
+            else:
+                logger.info("skip_over_max enabled but no token_stats.json found; no samples skipped")
 
         logger.info(f"Found {valid_count} valid markdown-PDF pairs")
 
@@ -1200,34 +1238,37 @@ class Tokenizer(PipelineStep):
             text=[text],
             images=[main_image],
             padding=True,
-            return_tensors="np",
+            return_tensors="pt",
         )
 
+        # Convert model inputs to numpy for downstream processing
+        inputs_input_ids = inputs.input_ids[0].cpu().numpy()
+
         # Get labels by tokenizing the output text
-        labels = self.processor(text=[response], padding=True, return_tensors="np")
+        labels = self.processor(text=[response], padding=True, return_tensors="pt")
+        labels_input_ids = labels["input_ids"][0].cpu().numpy()
 
         # Append end-of-message token to the labels
         end_tokens = self.processor.tokenizer(self.end_of_message_token, add_special_tokens=False)["input_ids"]
-        end_tokens = np.array(end_tokens, dtype=inputs.input_ids.dtype)
+        end_tokens = np.array(end_tokens, dtype=inputs_input_ids.dtype)
 
         # Handle the case where labels['input_ids'] is empty
-        if labels["input_ids"].shape[1] == 0:
-            labels_input_ids_0 = np.array([], dtype=inputs.input_ids.dtype)
+        if labels_input_ids.shape[0] == 0:
+            labels_input_ids_0 = np.array([], dtype=inputs_input_ids.dtype)
         else:
-            labels_input_ids_0 = labels["input_ids"][0].astype(inputs.input_ids.dtype)
+            labels_input_ids_0 = labels_input_ids.astype(inputs_input_ids.dtype)
 
-        labels["input_ids"] = np.concatenate([labels_input_ids_0, end_tokens])
-        labels["input_ids"] = np.expand_dims(labels["input_ids"], axis=0)
+        labels_input_ids = np.concatenate([labels_input_ids_0, end_tokens])
 
         # Concatenate input_ids and labels
-        input_ids = np.concatenate([inputs.input_ids[0], labels.input_ids[0]], axis=0)
+        input_ids = np.concatenate([inputs_input_ids, labels_input_ids], axis=0)
 
         # All columns will participate in attention fully
         attention_mask = np.ones_like(input_ids)
 
         # Create labels, masking the input portion with -100
         labels_full = np.full_like(input_ids, fill_value=self.masking_index)
-        labels_full[len(inputs.input_ids[0]) :] = labels.input_ids[0]
+        labels_full[len(inputs_input_ids) :] = labels_input_ids
 
         # Return as dict, including pixel_values
         sample["input_ids"] = input_ids
@@ -1348,6 +1389,12 @@ if __name__ == "__main__":
         "--analyze-tokens",
         action="store_true",
         help="Analyze token length distribution across entire dataset",
+    )
+    parser.add_argument(
+        "--analyze-workers",
+        type=int,
+        default=None,
+        help="Number of workers for token-length analysis (set to 1 to run sequentially)",
     )
     parser.add_argument(
         "--save-image",
@@ -1664,43 +1711,88 @@ if __name__ == "__main__":
                     return (idx, None, str(e))
 
             # Process samples in parallel with progress bar
-            sequence_lengths = []
+            num_samples = len(dataset)
+            sequence_lengths = [None] * num_samples  # preallocate to avoid append overhead
             max_sequence_length = 0
             max_sequence_sample_idx = 0
-            errors = []
+            error_count = 0
+            sample_errors = []
+            stats = {"count": 0, "mean": 0.0, "m2": 0.0, "max": 0}
+
+            def update_stats(val: int):
+                count = stats["count"] + 1
+                delta = val - stats["mean"]
+                mean = stats["mean"] + delta / count
+                delta2 = val - mean
+                stats["m2"] += delta * delta2
+                stats["mean"] = mean
+                stats["count"] = count
+                if val > stats["max"]:
+                    stats["max"] = val
+
+            def current_std() -> float:
+                return math.sqrt(stats["m2"] / stats["count"]) if stats["count"] > 0 else 0.0
 
             # Determine number of workers (use fewer workers to avoid memory issues)
             import multiprocessing
 
-            num_workers = min(multiprocessing.cpu_count() // 2, 8)
+            num_workers = args.analyze_workers if args.analyze_workers is not None else min(multiprocessing.cpu_count() // 2, 8)
+            print(f"Using {num_workers} worker(s) for analysis")
 
-            with ProcessPoolExecutor(max_workers=num_workers) as executor:
-                # Submit all tasks
-                futures = {executor.submit(process_sample, idx): idx for idx in range(len(dataset))}
-
-                # Process results with progress bar
+            if num_workers <= 1:
                 with tqdm(total=len(dataset), desc="Analyzing samples") as pbar:
-                    for future in as_completed(futures):
-                        idx = futures[future]
-                        try:
-                            idx, sequence_length, error = future.result()
-                            if error:
-                                errors.append((idx, error))
-                            elif sequence_length is not None:
-                                sequence_lengths.append(sequence_length)
-                                if sequence_length > max_sequence_length:
-                                    max_sequence_length = sequence_length
-                                    max_sequence_sample_idx = idx
-                        except Exception as e:
-                            errors.append((idx, f"Future error: {e}"))
+                    for idx in range(num_samples):
+                        idx, sequence_length, error = process_sample(idx)
+                        if error:
+                            error_count += 1
+                            if len(sample_errors) < 5:
+                                sample_errors.append((idx, error))
+                        elif sequence_length is not None:
+                            sequence_lengths[idx] = sequence_length
+                            update_stats(sequence_length)
+                            if sequence_length > max_sequence_length:
+                                max_sequence_length = sequence_length
+                                max_sequence_sample_idx = idx
+                        pbar.set_postfix({"max": stats["max"], "mean": f"{stats['mean']:.1f}", "std": f"{current_std():.1f}"})
                         pbar.update(1)
+            else:
+                with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                    # Submit all tasks
+                    futures = {executor.submit(process_sample, idx): idx for idx in range(num_samples)}
 
-            if errors:
-                print(f"\nEncountered {len(errors)} errors during processing")
-                if len(errors) <= 5:
-                    for idx, error in errors:
-                        print(f"  Sample {idx}: {error}")
+                    # Process results with progress bar
+                    with tqdm(total=len(dataset), desc="Analyzing samples") as pbar:
+                        for future in as_completed(futures):
+                            idx = futures[future]
+                            try:
+                                idx, sequence_length, error = future.result()
+                                if error:
+                                    error_count += 1
+                                    if len(sample_errors) < 5:
+                                        sample_errors.append((idx, error))
+                                elif sequence_length is not None:
+                                    sequence_lengths[idx] = sequence_length
+                                    update_stats(sequence_length)
+                                    if sequence_length > max_sequence_length:
+                                        max_sequence_length = sequence_length
+                                        max_sequence_sample_idx = idx
+                            except Exception as e:
+                                error_count += 1
+                                if len(sample_errors) < 5:
+                                    sample_errors.append((idx, f"Future error: {e}"))
+                            pbar.set_postfix({"max": stats["max"], "mean": f"{stats['mean']:.1f}", "std": f"{current_std():.1f}"})
+                            pbar.update(1)
 
+            if error_count:
+                print(f"\nEncountered {error_count} errors during processing")
+                for idx, error in sample_errors:
+                    print(f"  Sample {idx}: {error}")
+
+            # Preserve raw lengths for mapping to markdown paths
+            raw_sequence_lengths = sequence_lengths
+
+            # Filter out missing/None entries before computing stats
+            sequence_lengths = [l for l in sequence_lengths if l is not None]
             if sequence_lengths:
                 sequence_lengths = np.array(sequence_lengths)
 

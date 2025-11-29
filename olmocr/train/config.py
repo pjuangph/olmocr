@@ -176,6 +176,7 @@ class ModelConfig:
     load_in_8bit: bool = False
     load_in_4bit: bool = False
     device_map: Any = "auto"  # Can be string or dict
+    max_memory: Any = None  # Optional dict/string for per-device memory limits (e.g., {"0": "60%"})
     torch_dtype: str = "auto"  # "auto", "float16", "bfloat16", "float32"
 
     # Flash attention
@@ -252,10 +253,12 @@ class TrainingConfig:
 
     # Performance
     dataloader_drop_last: bool = True
-    dataloader_num_workers: int = 16
-
+    dataloader_num_workers: int = 0
+    pin_memory: bool = False
+    
     # Data collator settings
     collator_max_token_len: Optional[int] = None
+    collator_skip_over_max: bool = False
     remove_unused_columns: bool = False  # Important for custom datasets
 
     # Torch compile settings
