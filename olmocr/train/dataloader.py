@@ -1397,6 +1397,11 @@ if __name__ == "__main__":
         help="Number of workers for token-length analysis (set to 1 to run sequentially)",
     )
     parser.add_argument(
+        "--write-token-stats",
+        action="store_true",
+        help="Write token_stats.json under the dataset root with per-markdown lengths",
+    )
+    parser.add_argument(
         "--save-image",
         type=str,
         help="Save the processed image to the specified file path (e.g., output.png)",
@@ -1836,6 +1841,30 @@ if __name__ == "__main__":
 
                     range_str = f"{start:>5}-{end:>5}"
                     print(f"{range_str:>15} | {count:>6} | {bar}")
+
+                if args.write_token_stats:
+                    try:
+                        stats_path = Path(dataset.root_dir) / "token_stats.json"
+                        by_markdown = {}
+                        for i, sample in enumerate(dataset.samples):
+                            length = raw_sequence_lengths[i]
+                            if length is not None:
+                                rel_path = str(sample["markdown_path"].relative_to(dataset.root_dir))
+                                by_markdown[rel_path] = int(length)
+
+                        stats_payload = {
+                            "total_samples": len(raw_sequence_lengths),
+                            "analyzed_samples": len(sequence_lengths),
+                            "max_sequence_length": int(max_sequence_length),
+                            "mean_sequence_length": float(np.mean(sequence_lengths)),
+                            "std_sequence_length": float(np.std(sequence_lengths)),
+                            "by_markdown": by_markdown,
+                        }
+                        with open(stats_path, "w") as f:
+                            json.dump(stats_payload, f, indent=2)
+                        print(f"\nWrote token stats to {stats_path}")
+                    except Exception as e:
+                        print(f"\nFailed to write token_stats.json: {e}")
 
     else:
         raise AssertionError("Expected some data to be created at this point")
